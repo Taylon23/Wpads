@@ -83,8 +83,9 @@ function mk(dur,fn){
   const n=(dur*SR)|0, b=ctx.createBuffer(1,n,SR), x=b.getChannelData(0);
   let m=0;
   for(let i=0;i<n;i++){x[i]=fn(i/SR); const a=Math.abs(x[i]); if(a>m)m=a;}
-  const k=.92/(m||1), fade=Math.min(n,(.008*SR)|0);
-  for(let i=0;i<n;i++){x[i]*=k; if(i>n-fade)x[i]*=(n-i)/fade;}
+  // fade-out suave no final (curva cosseno) para o som nunca cortar de repente
+  const k=.92/(m||1), fade=Math.max(1,Math.min((n*.4)|0,(.6*SR)|0));
+  for(let i=0;i<n;i++){x[i]*=k; if(i>n-fade){const u=(n-i)/fade; x[i]*=.5-.5*Math.cos(Math.PI*u);}}
   return b;
 }
 const sweep=(f0,f1,tau)=>{let ph=0;return t=>{ph+=TAU*(f1+(f0-f1)*Math.exp(-t/tau))/SR;return Math.sin(ph);};};
@@ -95,7 +96,11 @@ const MF=[263,400,421,474,587,845];
 const metal=t=>{let s=0;for(const f of MF)s+=Math.sign(Math.sin(TAU*f*t));return s/6;};
 
 const SOUND={
-  sub808(){const s=sweep(120,47,.03);return mk(1.5,t=>Math.tanh(2.4*s(t))*ex(t,.6)*att(t));},
+  // 808 grave e pesado: seno em ~42 Hz com queda de tom curta, cauda longa e saturação leve (harmônicos para o celular reproduzir)
+  sub808(){let ph=0;return mk(2.2,t=>{
+    ph+=TAU*(41+55*Math.exp(-t/.035))/SR;
+    const b=Math.sin(ph);
+    return (Math.tanh(1.7*b)*.85+.3*Math.sin(2*ph))*ex(t,.85)*att(t,.004);});},
   surdo(){const s=sweep(95,54,.05),n=bp(180,2);return mk(.7,t=>Math.tanh(1.8*s(t))*ex(t,.2)*att(t)+.25*n(rnd())*ex(t,.01));},
   kick(){const s=sweep(170,50,.025);return mk(.45,t=>Math.tanh(2*s(t))*ex(t,.16)*att(t,.001)+.3*rnd()*ex(t,.002));},
   clap(){const f=bp(1150,1.3);return mk(.45,t=>{let e=0;for(const o of [0,.011,.022])if(t>=o)e+=ex(t-o,.004);if(t>=.033)e+=.7*ex(t-.033,.09);return f(rnd())*e*2.5;});},
@@ -123,23 +128,29 @@ Object.assign(SOUND,{
   shimmer(){return mk(3.4,t=>{let s=0;for(const f of [1046.5,1568,2093,3136])s+=Math.sin(TAU*f*t)*(f<2000?1:.6);return s*ex(t,1.1)*att(t,.02);});},
   fall(){let ph=0;return mk(1.3,t=>{ph+=TAU*(60+1400*Math.exp(-t/.35))/SR;return Math.sin(ph)*ex(t,.5);});},
   pulse(){const a=sweep(75,45,.04),b=sweep(75,45,.04);return mk(.6,t=>Math.tanh(2*a(t))*ex(t,.09)*att(t)+(t>=.22?.8*Math.tanh(2*b(t-.22))*ex(t-.22,.09):0));},
-  wash(){const f=bpv(.8);return mk(3.6,t=>f(rnd(),1800)*Math.pow(Math.sin(Math.PI*t/3.6),2));}
+  wash(){const f=bpv(.8);return mk(3.6,t=>f(rnd(),1800)*Math.pow(Math.sin(Math.PI*t/3.6),2));},
+  // Pulso firme: duas batidas curtas e secas, tipo coração
+  pulsoF(){
+    const a=sweep(105,52,.022), b=sweep(95,50,.022);
+    return mk(.55,t=>Math.tanh(2.6*a(t))*ex(t,.11)*att(t,.001)+.25*rnd()*ex(t,.002)
+      +(t>=.26?.75*Math.tanh(2.6*b(t-.26))*ex(t-.26,.11)*att(t-.26,.001):0));
+  }
 });
 
 // g = grupo de choke | r = quanto do pad vai para o reverb (0 a 1)
 const BANKS=[
- [{n:"Bumbo",c:"#ff5a2d",k:"q",s:"bumbo",r:.2},
-  {n:"Bumbo hall",c:"#ff2d6f",k:"w",s:"bumbo",r:.9},
-  {n:"Tom grave",c:"#ffb020",k:"e",s:"floorTom",r:.5},
-  {n:"Clap",c:"#21e6ff",k:"a",s:"clap",r:.12},
-  {n:"Clap hall",c:"#4d7cff",k:"s",s:"clap",r:1},
-  {n:"Snare",c:"#a15cff",k:"d",s:"snare",r:.35},
-  {n:"Hi-hat fechado",c:"#b6ff2d",k:"z",s:"hhC",g:"hat",r:.08},
-  {n:"Hi-hat aberto",c:"#2dff9a",k:"x",s:"hhO",g:"hat",r:.12},
-  {n:"Crash",c:"#ffe62d",k:"c",s:"crash",r:.3},
-  {n:"Tom",c:"#ff7a9a",k:"r",s:"tom",r:.45},
-  {n:"Rim",c:"#e45cff",k:"f",s:"rim",r:.3},
-  {n:"Sub 808",c:"#ff9a2d",k:"v",s:"sub808",g:"sub",r:0}],
+ [{n:"Kick Reverb",c:"#ff2d6f",k:"q",s:"bumbo",r:.9},
+  {n:"Sub 808",c:"#ff9a2d",k:"w",s:"sub808",g:"sub",r:0},
+  {n:"Estalo Reverb",c:"#ffe62d",k:"e",s:"snap",r:.9},
+  {n:"Hi-hat fechado Reverb",c:"#b6ff2d",k:"a",s:"hhC",g:"hat",r:.85},
+  {n:"Clap Reverb",c:"#4d7cff",k:"s",s:"clap",r:1},
+  {n:"Impacto",c:"#ffc94d",k:"d",s:"impact",r:.55},
+  {n:"Pulso",c:"#ff5a2d",k:"z",s:"pulse",r:.15},
+  {n:"Kick seco",c:"#ff7a5a",k:"x",s:"bumbo",r:.1},
+  {n:"Clap seco",c:"#21e6ff",k:"c",s:"clap",r:.1},
+  {n:"Snare",c:"#a15cff",k:"r",s:"snare",r:.35},
+  {n:"Hi-hat aberto",c:"#2dff9a",k:"f",s:"hhO",g:"hat",r:.3},
+  {n:"Tom grave",c:"#e45cff",k:"v",s:"floorTom",r:.5}],
  [{n:"Riser",c:"#21e6ff",k:"q",s:"riser",r:.4},
   {n:"Crash reverso",c:"#4d7cff",k:"w",s:"revCrash",r:.5},
   {n:"Impacto",c:"#ff2d6f",k:"e",s:"impact",r:.8},
@@ -187,17 +198,23 @@ const NN=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const keyEls=NN.map((n,m)=>{const d=document.createElement("div");d.className="key";d.dataset.m=m;d.textContent=n;keysEl.appendChild(d);return d;});
 let cur=null;
 function padStart(m){
+  // Pad suave e brilhante: senos/triângulos (sem serra), empilhados em oitavas, filtro aberto e respiração lenta
   const now=ctx.currentTime,g=ctx.createGain(),lp=ctx.createBiquadFilter(),oscs=[];
-  lp.type="lowpass"; lp.Q.value=.4; lp.frequency.setValueAtTime(350,now); lp.frequency.linearRampToValueAtTime(1400,now+3);
-  g.gain.setValueAtTime(0,now); g.gain.linearRampToValueAtTime(.2,now+2.2);
-  for(const [d,gn] of [[0,1],[7,.8],[12,.7],[19,.35]])for(const dt of [-9,0,9]){
+  lp.type="lowpass"; lp.Q.value=.3; lp.frequency.setValueAtTime(700,now); lp.frequency.linearRampToValueAtTime(4200,now+4);
+  g.gain.setValueAtTime(0,now); g.gain.linearRampToValueAtTime(.3,now+2.6);
+  // [semitons, ganho, tipo]: fundamental, quinta, oitava, 9ª/quinta alta, oitavas agudas (brilho)
+  for(const [d,gn,ty] of [[0,1,"sine"],[7,.7,"sine"],[12,.8,"triangle"],[19,.45,"sine"],[24,.3,"sine"],[28,.14,"sine"],[31,.2,"sine"],[36,.1,"sine"]])
+   for(const dt of [-7,0,7]){
     const o=ctx.createOscillator(),og=ctx.createGain();
-    o.type="sawtooth"; o.frequency.value=440*Math.pow(2,(48+m+d-69)/12); o.detune.value=dt;
-    og.gain.value=gn*.3; o.connect(og); og.connect(lp); o.start(now); oscs.push(o);
+    o.type=ty; o.frequency.value=440*Math.pow(2,(48+m+d-69)/12); o.detune.value=dt;
+    og.gain.value=gn*.22; o.connect(og); og.connect(lp); o.start(now); oscs.push(o);
   }
   const sub=ctx.createOscillator(),sg=ctx.createGain();
-  sub.frequency.value=440*Math.pow(2,(36+m-69)/12); sg.gain.value=.5; sub.connect(sg); sg.connect(lp); sub.start(now); oscs.push(sub);
-  const w=ctx.createGain(); w.gain.value=.9;
+  sub.type="sine"; sub.frequency.value=440*Math.pow(2,(36+m-69)/12); sg.gain.value=.4; sub.connect(sg); sg.connect(lp); sub.start(now); oscs.push(sub);
+  // respiração lenta no volume (suave, sem efeito eletrônico)
+  const lfo=ctx.createOscillator(),lg=ctx.createGain(); lfo.frequency.value=.14; lg.gain.value=.025;
+  lfo.connect(lg); lg.connect(g.gain); lfo.start(now); oscs.push(lfo);
+  const w=ctx.createGain(); w.gain.value=1.1;
   lp.connect(g); g.connect(padBus); g.connect(w); w.connect(revIn);
   return {g,oscs};
 }
