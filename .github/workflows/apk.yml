@@ -1,0 +1,50 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies & Build APK
+        run: |
+          npm init -y
+          npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          
+          # Garante que o arquivo HTML principal seja copiado para a pasta www do Capacitor
+          mkdir -p www
+          # Ajuste 'pad-worship.html' para o nome exato do seu arquivo HTML se for diferente
+          if [ -f "pad-worship.html" ]; then
+            cp pad-worship.html www/index.html
+          elif [ -f "index.html" ]; then
+            cp index.html www/index.html
+          fi
+
+          npx cap init "Pad Ochipe" com.wemerson.padworship --web-dir=www
+          npx cap add android
+          npx cap sync
+          
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pad-ochipec-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
