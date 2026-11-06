@@ -1,3 +1,4 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -30,6 +31,8 @@ input[type=range]{flex:1;touch-action:pan-x;accent-color:#ff2d6f;height:28px}
 .sl{display:flex;align-items:center;gap:8px;font-size:13px;color:#9a9ab5;flex:1 1 30%;min-width:130px}
 .sl input{flex:1;min-width:0}
 #hint{font-size:12px;color:#ff7aa6;line-height:1.3}
+#bk{display:flex;gap:8px}
+#bk button{flex:1;font-weight:700;font-size:13px;font-family:inherit;padding:9px 8px;border-radius:9px;border:1px solid #21e6ff;background:#21e6ff22;color:#fff}
 #keys{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
 .key{height:40px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:#a9a9c4;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;padding:0 4px;min-width:0}
 .key span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
@@ -82,6 +85,8 @@ input[type=range]{flex:1;touch-action:pan-x;accent-color:#ff2d6f;height:28px}
   <label class="sl">Pad <input id="pv" type="range" min="0" max="1" step=".01" value=".7"></label>
 </header>
 <div id="hint" hidden>Modo edição: toque num pad ou numa tecla contínua para renomear, trocar cor e importar áudio. Toque na aba ativa para renomeá-la.</div>
+<div id="bk" hidden><button id="bkOut">Exportar backup</button><button id="bkIn">Importar backup</button></div>
+<input id="bkFile" type="file" hidden>
 <div id="keys"></div>
 <main id="grid"></main>
 
@@ -286,7 +291,7 @@ function renderTabs(){
 }
 tabsEl.addEventListener("click",e=>{
   const x=e.target.closest("button");if(!x)return;
-  if(x.id==="editBtn"){editOn=!editOn;document.body.classList.toggle("edit",editOn);$("hint").hidden=!editOn;renderTabs();return;}
+  if(x.id==="editBtn"){editOn=!editOn;document.body.classList.toggle("edit",editOn);$("hint").hidden=!editOn;$("bk").hidden=!editOn;renderTabs();return;}
   const b=+x.dataset.b;
   if(editOn&&b===bank){openEd("tab",b,0);return;}
   show(b);
@@ -507,6 +512,47 @@ $("edReset").addEventListener("click",()=>{
   save();openEd(type,b,i);
 });
 
+// ---------- Backup: todos os sons + nomes + cores num único arquivo ----------
+async function exportBk(){
+  try{
+    toast("Preparando backup…");
+    const items=[],parts=[];
+    for(const k in cfg.pads)if(cfg.pads[k].file){const r=await fget("p:"+k);if(r&&r.data){items.push({id:"p:"+k,name:r.name,size:r.data.byteLength});parts.push(r.data);}}
+    for(const k in cfg.keys)if(cfg.keys[k].file){const r=await fget("k:"+k);if(r&&r.data){items.push({id:"k:"+k,name:r.name,size:r.data.byteLength});parts.push(r.data);}}
+    const head=new TextEncoder().encode(JSON.stringify({cfg,items}));
+    const pre=new Uint8Array(8);pre.set([80,87,66,49]);new DataView(pre.buffer).setUint32(4,head.length);
+    const blob=new Blob([pre,head,...parts],{type:"application/octet-stream"});
+    const f=new File([blob],"pad-worship.pwbackup",{type:"application/octet-stream"});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){
+      try{await navigator.share({files:[f],title:"Pad Worship backup"});return;}
+      catch(e){if(e&&e.name==="AbortError")return;}
+    }
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="pad-worship.pwbackup";
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),20000);
+    toast("Backup salvo ("+items.length+" sons)");
+  }catch(e){toast("Não consegui criar o backup");}
+}
+async function importBk(file){
+  try{
+    toast("Importando backup…");
+    const ab=await file.arrayBuffer(),u=new Uint8Array(ab);
+    if(String.fromCharCode(u[0],u[1],u[2],u[3])!=="PWB1"){toast("Esse arquivo não é um backup do Pad Worship");return;}
+    const hl=new DataView(ab).getUint32(4);
+    const head=JSON.parse(new TextDecoder().decode(u.subarray(8,8+hl)));
+    let off=8+hl;
+    for(const it of head.items){
+      const data=ab.slice(off,off+it.size);off+=it.size;
+      if(!(await fput(it.id,{name:it.name,data}))){toast("Não deu para gravar os sons no aparelho");return;}
+    }
+    localStorage.setItem("pw2",JSON.stringify(head.cfg));
+    toast("Backup importado! Reiniciando…");
+    setTimeout(()=>location.reload(),700);
+  }catch(e){toast("Backup inválido ou corrompido");}
+}
+$("bkOut").addEventListener("click",exportBk);
+$("bkIn").addEventListener("click",()=>$("bkFile").click());
+$("bkFile").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(f)importBk(f);});
+
 // ---------- Início ----------
 const go=$("go");
 (async()=>{
@@ -528,3 +574,5 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden&&ctx.state
 </script>
 </body>
 </html>
+
+</body></html>
