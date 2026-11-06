@@ -20,24 +20,44 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # Chave de assinatura FIXA: é ela que permite instalar o APK novo por cima do antigo
+      # sem perder os sons importados. Fica guardada em Settings > Secrets > Actions.
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "ERRO: falta o secret DEBUG_KEYSTORE_B64 (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          mkdir -p ~/.android
+          echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -i "androiddebugkey"
+
       - name: Install dependencies & Build APK
         run: |
           npm init -y
-          npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-          
-          # Garante que o arquivo HTML principal seja copiado para a pasta www do Capacitor
+          npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/filesystem@6 @capacitor/share@6
+
+          # Copia o HTML principal para a pasta www do Capacitor
           mkdir -p www
-          # Ajuste 'pad-worship.html' para o nome exato do seu arquivo HTML se for diferente
           if [ -f "pad-worship.html" ]; then
             cp pad-worship.html www/index.html
           elif [ -f "index.html" ]; then
             cp index.html www/index.html
+          else
+            echo "ERRO: nao achei pad-worship.html nem index.html na raiz do repositorio."
+            exit 1
           fi
 
           npx cap init "Pad Ochipe" com.wemerson.padworship --web-dir=www
           npx cap add android
           npx cap sync
-          
+
+          # Cada build ganha um versionCode maior, para o Android aceitar como atualizacao
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          grep -n "versionCode" android/app/build.gradle
+
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
@@ -47,4 +67,3 @@ jobs:
         with:
           name: pad-wt-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
-
