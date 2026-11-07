@@ -526,9 +526,16 @@ async function exportBk(){
     const C=window.Capacitor,PL=C&&C.Plugins;
     if(PL&&PL.Filesystem&&PL.Share){
       try{
-        const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(blob);});
-        const w=await PL.Filesystem.writeFile({path:"pad-worship.pwbackup",data:b64,directory:"CACHE"});
-        await PL.Share.share({title:"Pad Worship backup",dialogTitle:"Enviar backup",url:w.uri});
+        // Envia em pedaços de 1,5 MB (múltiplo de 3 bytes, para o base64 emendar certo) para não travar o app
+        const CH=3*512*1024,b64=sl=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(sl);});
+        let uri="";
+        for(let o=0;o<blob.size;o+=CH){
+          const data=await b64(blob.slice(o,o+CH));
+          if(o===0){const w=await PL.Filesystem.writeFile({path:"pad-worship.pwbackup",data,directory:"CACHE"});uri=w.uri;}
+          else await PL.Filesystem.appendFile({path:"pad-worship.pwbackup",data,directory:"CACHE"});
+          toast("Preparando backup… "+Math.min(100,Math.round((o+CH)/blob.size*100))+"% ("+(blob.size/1048576).toFixed(1)+" MB)");
+        }
+        await PL.Share.share({title:"Pad Worship backup",dialogTitle:"Enviar backup",url:uri});
         return;
       }catch(e){if(e&&/cancel/i.test(String(e.message||e)))return;}
     }
